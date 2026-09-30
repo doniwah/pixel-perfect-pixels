@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Snowflake, Flame, Cpu } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, PageHeader } from "@/components/app-layout";
@@ -30,28 +30,65 @@ export const Route = createFileRoute("/control")({
 });
 
 function Control() {
-  const { current } = useGreenhouse();
-  const [manual, setManual] = useState(false);
-  const [cooling, setCooling] = useState(false);
-  const [heater, setHeater] = useState(false);
+  const { current, setMode: syncModeToFirebase, setActuator, isConnected, activeNode } = useGreenhouse();
+  const manual = current.mode === "MANUAL";
+  const coolingOn = current.cooling;
+  const heaterOn = current.heater;
 
-  const coolingOn = manual ? cooling : current.cooling;
-  const heaterOn = manual ? heater : current.heater;
+  // Track if user explicitly clicked toggle to differentiate from microcontroller safety cutoff
+  const userInitiatedModeChange = useRef(false);
+  const prevManual = useRef(manual);
 
-  const setMode = (value: boolean) => {
-    setManual(value);
-    toast(value ? "Manual mode enabled" : "Automatic mode restored", {
-      description: value
-        ? "Automation rules are paused. You are driving the relays."
-        : "Relays follow the configured temperature rules again.",
-    });
+  useEffect(() => {
+    // If mode turned from manual to automatic without user clicking the switch
+    if (prevManual.current && !manual && !userInitiatedModeChange.current) {
+      toast.warning("Sistem Pengaman Aktif", {
+        description: "Suhu mencapai batas maksimal. Pemanas telah dimatikan dan mode kontrol otomatis diaktifkan kembali.",
+        duration: 5000,
+      });
+    }
+    userInitiatedModeChange.current = false;
+    prevManual.current = manual;
+  }, [manual]);
+
+  const handleModeChange = async (isManual: boolean) => {
+    userInitiatedModeChange.current = true;
+    const nextMode = isManual ? "MANUAL" : "AUTOMATIC";
+    try {
+      await syncModeToFirebase(nextMode);
+      toast.success(isManual ? "Manual mode enabled" : "Automatic mode restored", {
+        description: isManual
+          ? "Automation rules paused. Relay control sent to Firebase."
+          : "Relays follow configured temperature rules in Firebase.",
+      });
+    } catch (err: any) {
+      toast.error("Failed to update mode in Firebase: " + err.message);
+    }
+  };
+
+  const handleCoolingChange = async (v: boolean) => {
+    try {
+      await setActuator("cooling", v);
+      toast.success(`Cooling fogger ${v ? "ON" : "OFF"} (Firebase updated)`);
+    } catch (err: any) {
+      toast.error("Failed to update cooling in Firebase: " + err.message);
+    }
+  };
+
+  const handleHeaterChange = async (v: boolean) => {
+    try {
+      await setActuator("heater", v);
+      toast.success(`Heater ${v ? "ON" : "OFF"} (Firebase updated)`);
+    } catch (err: any) {
+      toast.error("Failed to update heater in Firebase: " + err.message);
+    }
   };
 
   return (
     <AppLayout>
       <PageHeader
         title="Smart Control"
-        subtitle="Relay control for the cooling fogger and heater"
+        subtitle={`Relay control for ${activeNode} cooling fogger and heater (Live Firebase)`}
       />
 
       <div className="surface-card flex flex-col gap-5 p-7 sm:flex-row sm:items-center sm:justify-between">
@@ -60,11 +97,19 @@ function Control() {
             <Cpu className="size-5" />
           </span>
           <div>
-            <p className="font-semibold">Control mode</p>
+            <div className="flex items-center gap-2">
+              <p className="font-semibold">Control mode</p>
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-semibold",
+                isConnected ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+              )}>
+                {isConnected ? "Firebase Connected" : "Connecting..."}
+              </span>
+            </div>
             <p className="text-sm text-muted-foreground">
               {manual
-                ? "Manual — actuators respond only to your input."
-                : "Automatic — actuators follow the microclimate rules."}
+                ? "Manual — actuators respond directly to your input and sync with Firebase."
+                : "Automatic — actuators follow the microclimate rules in Firebase."}
             </p>
           </div>
         </div>
@@ -74,7 +119,7 @@ function Control() {
           >
             Automatic
           </span>
-          <Switch checked={manual} onCheckedChange={setMode} />
+          <Switch checked={manual} onCheckedChange={handleModeChange} />
           <span
             className={cn("text-sm font-medium", manual ? "text-foreground" : "text-muted-foreground")}
           >
@@ -93,15 +138,12 @@ function Control() {
           footer={
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
-                {manual ? "Manual override" : "Controlled by automation"}
+                {manual ? "Manual override (Firebase)" : "Controlled by automation"}
               </span>
               <Switch
                 checked={coolingOn}
                 disabled={!manual}
-                onCheckedChange={(v) => {
-                  setCooling(v);
-                  toast(`Cooling ${v ? "ON" : "OFF"}`);
-                }}
+                onCheckedChange={handleCoolingChange}
               />
             </div>
           }
@@ -115,15 +157,12 @@ function Control() {
           footer={
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
-                {manual ? "Manual override" : "Controlled by automation"}
+                {manual ? "Manual override (Firebase)" : "Controlled by automation"}
               </span>
               <Switch
                 checked={heaterOn}
                 disabled={!manual}
-                onCheckedChange={(v) => {
-                  setHeater(v);
-                  toast(`Heater ${v ? "ON" : "OFF"}`);
-                }}
+                onCheckedChange={handleHeaterChange}
               />
             </div>
           }

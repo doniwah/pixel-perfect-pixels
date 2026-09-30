@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Snowflake, Flame, Check } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, PageHeader } from "@/components/app-layout";
@@ -29,14 +29,39 @@ export const Route = createFileRoute("/automation")({
 });
 
 function Automation() {
-  const { current } = useGreenhouse();
-  const [enabled, setEnabled] = useState(true);
-  const [temp, setTemp] = useState<number[]>([TEMP_TARGET.min, TEMP_TARGET.max]);
-  const [humidity, setHumidity] = useState<number[]>([HUMIDITY_TARGET.min, HUMIDITY_TARGET.max]);
+  const { current, thresholds, setThresholds, isConnected, activeNode } = useGreenhouse();
+  const [enabled, setEnabled] = useState(thresholds.enabled ?? true);
+  const [temp, setTemp] = useState<number[]>([thresholds.tempMin, thresholds.tempMax]);
+  const [humidity, setHumidity] = useState<number[]>([thresholds.humMin, thresholds.humMax]);
+
+  // Synchronize when thresholds load from Firebase
+  useEffect(() => {
+    setTemp([thresholds.tempMin, thresholds.tempMax]);
+    setHumidity([thresholds.humMin, thresholds.humMax]);
+    setEnabled(thresholds.enabled ?? true);
+  }, [thresholds.tempMin, thresholds.tempMax, thresholds.humMin, thresholds.humMax, thresholds.enabled]);
+
+  const handleSave = async () => {
+    try {
+      await setThresholds({
+        tempMin: temp[0],
+        tempMax: temp[1],
+        humMin: humidity[0],
+        humMax: humidity[1],
+        enabled,
+      });
+      toast.success("Automation rules saved to Firebase");
+    } catch (err: any) {
+      toast.error("Failed to save rules to Firebase: " + err.message);
+    }
+  };
 
   return (
     <AppLayout>
-      <PageHeader title="Automation" subtitle="Rule-based microclimate thresholds" />
+      <PageHeader
+        title="Automation"
+        subtitle={`Rule-based microclimate thresholds for ${activeNode} (Live Firebase)`}
+      />
 
       <div className="surface-card flex items-center justify-between p-7">
         <div>
@@ -115,10 +140,10 @@ function Automation() {
           ))}
         </ul>
         <button
-          onClick={() => toast.success("Automation rules saved")}
-          className="mt-7 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+          onClick={handleSave}
+          className="mt-7 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90 cursor-pointer"
         >
-          <Check className="size-4" /> Save rules
+          <Check className="size-4" /> Save rules to Firebase
         </button>
       </div>
     </AppLayout>

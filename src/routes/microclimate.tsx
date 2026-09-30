@@ -79,15 +79,15 @@ function MetricBlock({
 }
 
 function Microclimate() {
-  const { current, tempStats, humidityStats, history } = useGreenhouse();
+  const { current, tempStats, humidityStats, history, activeNode, isConnected, thresholds } = useGreenhouse();
   const [range, setRange] = useState<RangeKey>("24h");
 
   return (
     <AppLayout>
       <PageHeader
         title="Microclimate Monitoring"
-        subtitle="DHT22 sensor readings from the greenhouse node"
-        right={<LiveDot label="Sensor Connected" />}
+        subtitle={`${activeNode} sensor readings from Firebase Realtime Database`}
+        right={<LiveDot label={isConnected ? "Firebase Connected" : "Connecting..."} />}
       />
 
       <div className="grid gap-5 md:grid-cols-2">
